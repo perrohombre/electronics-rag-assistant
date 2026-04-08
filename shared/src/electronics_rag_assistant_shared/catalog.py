@@ -71,3 +71,25 @@ class CatalogStatus(BaseModel):
     total_products: int
     categories: list[CategorySnapshot] = Field(default_factory=list)
     last_synced_at: datetime | None = None
+
+
+class CategorySyncResult(BaseModel):
+    """Result summary for one synced category."""
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    internal_category: InternalCategory
+    source_category_id: str
+    source_category_name: str
+    product_count: int
+    last_synced_at: datetime
+
+
+class CatalogSyncReport(BaseModel):
+    """Summary returned after a sync job completes."""
+
+    source: str
+    total_products: int
+    categories: list[CategorySyncResult] = Field(default_factory=list)
+    started_at: datetime
+    finished_at: datetime
