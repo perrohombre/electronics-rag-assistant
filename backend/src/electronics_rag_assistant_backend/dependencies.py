@@ -3,7 +3,11 @@
 from collections.abc import Generator
 
 from fastapi import Depends
+from qdrant_client import QdrantClient
 
+from electronics_rag_assistant_backend.indexing.openai_embedder import OpenAIEmbedder
+from electronics_rag_assistant_backend.indexing.qdrant_product_index import QdrantProductIndex
+from electronics_rag_assistant_backend.services.catalog_index import CatalogIndexService
 from electronics_rag_assistant_backend.services.catalog_sync import CatalogSyncService
 from electronics_rag_assistant_backend.settings import Settings, get_settings
 from electronics_rag_assistant_backend.source.bestbuy_client import BestBuyClient
@@ -38,6 +42,44 @@ def get_bestbuy_client(
         client.close()
 
 
+def get_qdrant_client(
+    settings: Settings = Depends(get_settings),
+) -> Generator[QdrantClient, None, None]:
+    """Yield a configured Qdrant client and close it after the request."""
+
+    client = QdrantClient(url=settings.qdrant_url)
+    try:
+        yield client
+    finally:
+        client.close()
+
+
+def get_product_index(
+    settings: Settings = Depends(get_settings),
+    qdrant_client: QdrantClient = Depends(get_qdrant_client),
+) -> QdrantProductIndex:
+    """Return the configured Qdrant product index wrapper."""
+
+    return QdrantProductIndex(
+        qdrant_client,
+        collection_name=settings.qdrant_collection_name,
+        vector_size=settings.openai_embedding_dimensions,
+    )
+
+
+def get_embedder(
+    settings: Settings = Depends(get_settings),
+) -> OpenAIEmbedder:
+    """Return the configured embedding provider."""
+
+    return OpenAIEmbedder(
+        api_key=settings.openai_api_key,
+        model=settings.openai_embedding_model,
+        dimensions=settings.openai_embedding_dimensions,
+        batch_size=settings.openai_embedding_batch_size,
+    )
+
+
 def get_catalog_sync_service(
     settings: Settings = Depends(get_settings),
     repository: SQLiteCatalogRepository = Depends(get_catalog_repository),
@@ -50,4 +92,20 @@ def get_catalog_sync_service(
         bestbuy_client=bestbuy_client,
         page_size=settings.bestbuy_page_size,
         max_pages_per_category=settings.bestbuy_max_pages_per_category,
+    )
+
+
+def get_catalog_index_service(
+    settings: Settings = Depends(get_settings),
+    repository: SQLiteCatalogRepository = Depends(get_catalog_repository),
+    product_index: QdrantProductIndex = Depends(get_product_index),
+    embedder: OpenAIEmbedder = Depends(get_embedder),
+) -> CatalogIndexService:
+    """Return the catalog indexing service."""
+
+    return CatalogIndexService(
+        repository=repository,
+        product_index=product_index,
+        embedder=embedder,
+        embedding_model=settings.openai_embedding_model,
     )

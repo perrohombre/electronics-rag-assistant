@@ -93,3 +93,12 @@ class CatalogSyncReport(BaseModel):
     categories: list[CategorySyncResult] = Field(default_factory=list)
     started_at: datetime
     finished_at: datetime
+
+
+class CatalogIndexReport(BaseModel):
+    """Summary returned after the local catalog is indexed in Qdrant."""
+
+    collection_name: str
+    embedding_model: str
+    indexed_products: int
+    indexed_at: datetime
