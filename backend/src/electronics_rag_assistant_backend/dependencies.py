@@ -8,6 +8,7 @@ from qdrant_client import QdrantClient
 from electronics_rag_assistant_backend.indexing.openai_embedder import OpenAIEmbedder
 from electronics_rag_assistant_backend.indexing.qdrant_product_index import QdrantProductIndex
 from electronics_rag_assistant_backend.services.catalog_index import CatalogIndexService
+from electronics_rag_assistant_backend.services.catalog_search import CatalogSearchService
 from electronics_rag_assistant_backend.services.catalog_sync import CatalogSyncService
 from electronics_rag_assistant_backend.settings import Settings, get_settings
 from electronics_rag_assistant_backend.source.bestbuy_client import BestBuyClient
@@ -108,4 +109,18 @@ def get_catalog_index_service(
         product_index=product_index,
         embedder=embedder,
         embedding_model=settings.openai_embedding_model,
+    )
+
+
+def get_catalog_search_service(
+    settings: Settings = Depends(get_settings),
+    qdrant_client: QdrantClient = Depends(get_qdrant_client),
+    embedder: OpenAIEmbedder = Depends(get_embedder),
+) -> CatalogSearchService:
+    """Return the semantic retrieval service."""
+
+    return CatalogSearchService(
+        qdrant_client=qdrant_client,
+        embedder=embedder,
+        collection_name=settings.qdrant_collection_name,
     )
