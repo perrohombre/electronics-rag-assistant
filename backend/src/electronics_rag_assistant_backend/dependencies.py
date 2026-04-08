@@ -7,9 +7,11 @@ from qdrant_client import QdrantClient
 
 from electronics_rag_assistant_backend.indexing.openai_embedder import OpenAIEmbedder
 from electronics_rag_assistant_backend.indexing.qdrant_product_index import QdrantProductIndex
+from electronics_rag_assistant_backend.services.assistant_service import AssistantService
 from electronics_rag_assistant_backend.services.catalog_index import CatalogIndexService
 from electronics_rag_assistant_backend.services.catalog_search import CatalogSearchService
 from electronics_rag_assistant_backend.services.catalog_sync import CatalogSyncService
+from electronics_rag_assistant_backend.services.grounded_answer import GroundedAnswerService
 from electronics_rag_assistant_backend.services.query_analysis import QueryAnalysisService
 from electronics_rag_assistant_backend.settings import Settings, get_settings
 from electronics_rag_assistant_backend.source.bestbuy_client import BestBuyClient
@@ -142,4 +144,31 @@ def get_catalog_search_service(
         embedder=embedder,
         query_analysis_service=query_analysis_service,
         collection_name=settings.qdrant_collection_name,
+    )
+
+
+def get_grounded_answer_service(
+    settings: Settings = Depends(get_settings),
+) -> GroundedAnswerService:
+    """Return the grounded answer generation service."""
+
+    return GroundedAnswerService(
+        api_key=settings.openai_api_key,
+        model=settings.openai_answering_model,
+        timeout_seconds=settings.openai_answering_timeout_seconds,
+        max_output_tokens=settings.openai_answering_max_output_tokens,
+    )
+
+
+def get_assistant_service(
+    catalog_search_service: CatalogSearchService = Depends(get_catalog_search_service),
+    answer_service: GroundedAnswerService = Depends(get_grounded_answer_service),
+    repository: SQLiteCatalogRepository = Depends(get_catalog_repository),
+) -> AssistantService:
+    """Return the application-facing assistant service."""
+
+    return AssistantService(
+        catalog_search_service=catalog_search_service,
+        answer_service=answer_service,
+        repository=repository,
     )
