@@ -49,3 +49,25 @@ class ProductRecord(BaseModel):
     description: str
     specs: dict[str, str] = Field(default_factory=dict)
     last_synced_at: datetime
+
+
+class CategorySnapshot(BaseModel):
+    """Persisted sync summary for one internal catalog category."""
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    internal_category: InternalCategory
+    source_category_id: str
+    source_category_name: str
+    source_category_path: list[str] = Field(default_factory=list)
+    source_category_url: str | None = None
+    product_count: int
+    last_synced_at: datetime
+
+
+class CatalogStatus(BaseModel):
+    """Aggregated state of the local product catalog."""
+
+    total_products: int
+    categories: list[CategorySnapshot] = Field(default_factory=list)
+    last_synced_at: datetime | None = None

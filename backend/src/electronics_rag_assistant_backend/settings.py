@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8000, alias="API_PORT")
     streamlit_server_port: int = Field(default=8501, alias="STREAMLIT_SERVER_PORT")
     qdrant_url: str = Field(default="http://localhost:6333", alias="QDRANT_URL")
+    catalog_db_path: str = Field(default="data/catalog.db", alias="CATALOG_DB_PATH")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     bestbuy_api_key: str = Field(default="", alias="BESTBUY_API_KEY")
     bestbuy_base_url: str = Field(
