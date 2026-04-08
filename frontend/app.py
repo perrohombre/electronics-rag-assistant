@@ -4,7 +4,6 @@ import os
 
 import streamlit as st
 
-
 st.set_page_config(page_title="Electronics RAG Assistant", layout="wide")
 
 api_host = os.getenv("API_HOST", "127.0.0.1")
