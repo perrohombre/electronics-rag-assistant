@@ -178,6 +178,50 @@ class SQLiteCatalogRepository:
             last_synced_at=last_synced_at,
         )
 
+    def list_products(self) -> list[ProductRecord]:
+        """Return all locally persisted products."""
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    source_id,
+                    sku,
+                    name,
+                    brand,
+                    internal_category,
+                    source_category_id,
+                    price_usd,
+                    availability,
+                    url,
+                    image_url,
+                    description,
+                    specs_json,
+                    last_synced_at
+                FROM products
+                ORDER BY internal_category, sku
+                """
+            ).fetchall()
+
+        return [
+            ProductRecord(
+                source_id=row["source_id"],
+                sku=row["sku"],
+                name=row["name"],
+                brand=row["brand"],
+                internal_category=row["internal_category"],
+                source_category_id=row["source_category_id"],
+                price_usd=row["price_usd"],
+                availability=row["availability"],
+                url=row["url"],
+                image_url=row["image_url"],
+                description=row["description"],
+                specs=json.loads(row["specs_json"]),
+                last_synced_at=row["last_synced_at"],
+            )
+            for row in rows
+        ]
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._db_path)
         connection.row_factory = sqlite3.Row

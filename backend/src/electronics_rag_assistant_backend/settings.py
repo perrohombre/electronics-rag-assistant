@@ -17,8 +17,21 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8000, alias="API_PORT")
     streamlit_server_port: int = Field(default=8501, alias="STREAMLIT_SERVER_PORT")
     qdrant_url: str = Field(default="http://localhost:6333", alias="QDRANT_URL")
+    qdrant_collection_name: str = Field(default="products", alias="QDRANT_COLLECTION_NAME")
     catalog_db_path: str = Field(default="data/catalog.db", alias="CATALOG_DB_PATH")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_embedding_model: str = Field(
+        default="text-embedding-3-small",
+        alias="OPENAI_EMBEDDING_MODEL",
+    )
+    openai_embedding_dimensions: int = Field(
+        default=1536,
+        alias="OPENAI_EMBEDDING_DIMENSIONS",
+    )
+    openai_embedding_batch_size: int = Field(
+        default=32,
+        alias="OPENAI_EMBEDDING_BATCH_SIZE",
+    )
     bestbuy_api_key: str = Field(default="", alias="BESTBUY_API_KEY")
     bestbuy_base_url: str = Field(
         default="https://api.bestbuy.com/v1",
