@@ -9,7 +9,12 @@ from electronics_rag_assistant_backend.indexing.qdrant_product_index import (
 )
 from electronics_rag_assistant_backend.services.catalog_search import CatalogSearchService
 from electronics_rag_assistant_shared.catalog import InternalCategory, ProductRecord
-from electronics_rag_assistant_shared.search import SearchRequest
+from electronics_rag_assistant_shared.search import (
+    CurrencyCode,
+    ParsedSearchQuery,
+    SearchIntent,
+    SearchRequest,
+)
 
 
 class StubQueryEmbedder:
@@ -22,6 +27,14 @@ class StubQueryEmbedder:
             else:
                 vectors.append([0.0, 1.0, 0.0])
         return vectors
+
+
+class StubQueryAnalysisService:
+    def __init__(self, parsed_query: ParsedSearchQuery) -> None:
+        self._parsed_query = parsed_query
+
+    def analyze(self, _raw_query: str) -> ParsedSearchQuery:
+        return self._parsed_query
 
 
 def _build_record(
@@ -96,6 +109,29 @@ def _seed_products(index: QdrantProductIndex) -> None:
     )
 
 
+def _build_parsed_query(
+    *,
+    raw_query: str,
+    semantic_query: str,
+    category: InternalCategory | None = None,
+    brand: str | None = None,
+    budget_value: float | None = None,
+    budget_currency: CurrencyCode | None = None,
+    availability: str | None = None,
+) -> ParsedSearchQuery:
+    return ParsedSearchQuery(
+        raw_query=raw_query,
+        normalized_query=raw_query.lower(),
+        intent=SearchIntent.SEARCH,
+        category=category,
+        brand=brand,
+        budget_value=budget_value,
+        budget_currency=budget_currency,
+        availability=availability,
+        semantic_query=semantic_query,
+    )
+
+
 def test_search_service_returns_hits_matching_query_constraints() -> None:
     qdrant_client = QdrantClient(location=":memory:")
     index = QdrantProductIndex(qdrant_client, collection_name="products", vector_size=3)
@@ -103,6 +139,16 @@ def test_search_service_returns_hits_matching_query_constraints() -> None:
     service = CatalogSearchService(
         qdrant_client=qdrant_client,
         embedder=StubQueryEmbedder(),
+        query_analysis_service=StubQueryAnalysisService(
+            _build_parsed_query(
+                raw_query="monitor Dell do 400 USD",
+                semantic_query="monitor Dell do 400 USD",
+                category=InternalCategory.MONITORS,
+                brand="Dell",
+                budget_value=400.0,
+                budget_currency=CurrencyCode.USD,
+            )
+        ),
         collection_name="products",
     )
 
@@ -121,6 +167,16 @@ def test_search_service_returns_no_hits_when_budget_filter_excludes_candidates()
     service = CatalogSearchService(
         qdrant_client=qdrant_client,
         embedder=StubQueryEmbedder(),
+        query_analysis_service=StubQueryAnalysisService(
+            _build_parsed_query(
+                raw_query="monitor Dell do 200 USD",
+                semantic_query="monitor Dell do 200 USD",
+                category=InternalCategory.MONITORS,
+                brand="Dell",
+                budget_value=200.0,
+                budget_currency=CurrencyCode.USD,
+            )
+        ),
         collection_name="products",
     )
 
@@ -137,6 +193,14 @@ def test_search_service_rejects_pln_budget_queries() -> None:
     service = CatalogSearchService(
         qdrant_client=qdrant_client,
         embedder=StubQueryEmbedder(),
+        query_analysis_service=StubQueryAnalysisService(
+            _build_parsed_query(
+                raw_query="monitor do 1000 zl",
+                semantic_query="monitor do 1000 zl",
+                budget_value=1000.0,
+                budget_currency=CurrencyCode.PLN,
+            )
+        ),
         collection_name="products",
     )
 
@@ -149,8 +213,40 @@ def test_search_service_requires_existing_index_collection() -> None:
     service = CatalogSearchService(
         qdrant_client=qdrant_client,
         embedder=StubQueryEmbedder(),
+        query_analysis_service=StubQueryAnalysisService(
+            _build_parsed_query(
+                raw_query="monitor Dell",
+                semantic_query="monitor Dell",
+                category=InternalCategory.MONITORS,
+                brand="Dell",
+            )
+        ),
         collection_name="products",
     )
 
     with pytest.raises(RuntimeError, match="Indeks katalogu nie jest gotowy"):
         service.search(SearchRequest(query="monitor Dell", limit=5))
+
+
+def test_search_service_performs_semantic_retrieval_without_category_filter() -> None:
+    qdrant_client = QdrantClient(location=":memory:")
+    index = QdrantProductIndex(qdrant_client, collection_name="products", vector_size=3)
+    _seed_products(index)
+    service = CatalogSearchService(
+        qdrant_client=qdrant_client,
+        embedder=StubQueryEmbedder(),
+        query_analysis_service=StubQueryAnalysisService(
+            _build_parsed_query(
+                raw_query="czegos do programowania",
+                semantic_query="monitor do programowania",
+            )
+        ),
+        collection_name="products",
+    )
+
+    response = service.search(SearchRequest(query="czegos do programowania", limit=5))
+
+    assert response.parsed_query.category is None
+    assert response.parsed_query.brand is None
+    assert response.total_hits == 2
+    assert {hit.source_id for hit in response.hits} == {"bestbuy:1", "bestbuy:2"}

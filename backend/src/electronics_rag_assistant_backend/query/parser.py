@@ -1,11 +1,10 @@
-"""Heuristic parser for Polish shopping queries."""
+"""Deterministic query normalization and fallback parsing."""
 
 from __future__ import annotations
 
 import re
 import unicodedata
 
-from electronics_rag_assistant_shared.catalog import InternalCategory
 from electronics_rag_assistant_shared.search import CurrencyCode, ParsedSearchQuery, SearchIntent
 
 _POLISH_CHAR_REPLACEMENTS = str.maketrans(
@@ -31,37 +30,6 @@ _POLISH_CHAR_REPLACEMENTS = str.maketrans(
     }
 )
 
-_CATEGORY_PATTERNS: tuple[tuple[InternalCategory, tuple[str, ...]], ...] = (
-    (InternalCategory.LAPTOPS, ("laptop", "laptopy", "notebook", "notebooki")),
-    (InternalCategory.MONITORS, ("monitor", "monitory")),
-    (InternalCategory.TELEVISIONS, ("telewizor", "telewizory", "tv")),
-    (InternalCategory.MICE, ("mysz", "myszka", "myszki", "mouse")),
-    (InternalCategory.KEYBOARDS, ("klawiatura", "klawiatury", "keyboard", "keyboards")),
-    (InternalCategory.HEADPHONES, ("sluchawki", "sluchawka", "headphones", "headset")),
-)
-
-_KNOWN_BRANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("Apple", ("apple",)),
-    ("Asus", ("asus",)),
-    ("Acer", ("acer",)),
-    ("Bose", ("bose",)),
-    ("Dell", ("dell",)),
-    ("HP", ("hp", "hewlett packard")),
-    ("JBL", ("jbl",)),
-    ("Keychron", ("keychron",)),
-    ("LG", ("lg",)),
-    ("Lenovo", ("lenovo",)),
-    ("Logitech", ("logitech",)),
-    ("MSI", ("msi",)),
-    ("Philips", ("philips",)),
-    ("Razer", ("razer",)),
-    ("Samsung", ("samsung",)),
-    ("Sennheiser", ("sennheiser",)),
-    ("Sony", ("sony",)),
-    ("SteelSeries", ("steelseries",)),
-    ("Xiaomi", ("xiaomi",)),
-)
-
 _PLN_PATTERN = re.compile(
     r"(?:(?:do|ponizej|maksymalnie|max)\s+)?(\d+(?:[.,]\d+)?)\s*(pln|zl|zł)\b"
 )
@@ -75,17 +43,23 @@ _BUDGET_WITHOUT_CURRENCY_PATTERN = re.compile(
 
 
 def parse_search_query(raw_query: str) -> ParsedSearchQuery:
-    """Extract intent and hard constraints from a user query."""
+    """Backward-compatible wrapper around the deterministic fallback parser."""
 
-    normalized_query = _normalize_query(raw_query)
+    return parse_search_query_fallback(raw_query)
+
+
+def parse_search_query_fallback(raw_query: str) -> ParsedSearchQuery:
+    """Return a minimal deterministic fallback analysis for a user query."""
+
+    normalized_query = normalize_query(raw_query)
     budget_value, budget_currency = _extract_budget(normalized_query)
 
     return ParsedSearchQuery(
         raw_query=raw_query.strip(),
         normalized_query=normalized_query,
         intent=_extract_intent(normalized_query),
-        category=_extract_category(normalized_query),
-        brand=_extract_brand(normalized_query),
+        category=None,
+        brand=None,
         budget_value=budget_value,
         budget_currency=budget_currency,
         availability=_extract_availability(normalized_query),
@@ -97,26 +71,6 @@ def _extract_intent(normalized_query: str) -> SearchIntent:
     if any(token in normalized_query for token in ("porownaj", "versus", " vs ", "compare")):
         return SearchIntent.COMPARISON
     return SearchIntent.SEARCH
-
-
-def _extract_category(normalized_query: str) -> InternalCategory | None:
-    for category, patterns in _CATEGORY_PATTERNS:
-        if any(
-            re.search(rf"(?<!\w){re.escape(pattern)}(?!\w)", normalized_query)
-            for pattern in patterns
-        ):
-            return category
-    return None
-
-
-def _extract_brand(normalized_query: str) -> str | None:
-    for canonical_brand, aliases in _KNOWN_BRANDS:
-        if any(
-            re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", normalized_query)
-            for alias in aliases
-        ):
-            return canonical_brand
-    return None
 
 
 def _extract_budget(normalized_query: str) -> tuple[float | None, CurrencyCode | None]:
@@ -142,10 +96,10 @@ def _extract_availability(normalized_query: str) -> str:
         for token in ("na stanie", "w magazynie", "dostepn", "od reki")
     ):
         return "available"
-    return "available"
+    return None
 
 
-def _normalize_query(raw_query: str) -> str:
+def normalize_query(raw_query: str) -> str:
     normalized = unicodedata.normalize("NFKD", raw_query.translate(_POLISH_CHAR_REPLACEMENTS))
     ascii_only = normalized.encode("ascii", "ignore").decode("ascii").lower()
     collapsed = re.sub(r"[^a-z0-9$ ]+", " ", ascii_only)

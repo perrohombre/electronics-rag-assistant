@@ -5,29 +5,31 @@ from __future__ import annotations
 from qdrant_client import QdrantClient
 
 from electronics_rag_assistant_backend.indexing.openai_embedder import Embedder
-from electronics_rag_assistant_backend.query.parser import parse_search_query
 from electronics_rag_assistant_backend.retrieval.filter_builder import build_qdrant_filter
+from electronics_rag_assistant_backend.services.query_analysis import QueryAnalysisService
 from electronics_rag_assistant_shared.search import ProductSearchHit, SearchRequest, SearchResponse
 
 
 class CatalogSearchService:
-    """Parse a search query, build filters, and query Qdrant."""
+    """Analyze a search query, build filters, and query Qdrant."""
 
     def __init__(
         self,
         *,
         qdrant_client: QdrantClient,
         embedder: Embedder,
+        query_analysis_service: QueryAnalysisService,
         collection_name: str,
     ) -> None:
         self._qdrant_client = qdrant_client
         self._embedder = embedder
+        self._query_analysis_service = query_analysis_service
         self._collection_name = collection_name
 
     def search(self, request: SearchRequest) -> SearchResponse:
         """Execute semantic retrieval over the indexed product catalog."""
 
-        parsed_query = parse_search_query(request.query)
+        parsed_query = self._query_analysis_service.analyze(request.query)
         query_filter = build_qdrant_filter(parsed_query)
 
         if not self._qdrant_client.collection_exists(self._collection_name):
