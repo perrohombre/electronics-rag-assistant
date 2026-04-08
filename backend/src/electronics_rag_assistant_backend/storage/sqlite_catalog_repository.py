@@ -203,23 +203,71 @@ class SQLiteCatalogRepository:
                 """
             ).fetchall()
 
+        return [self._map_product_row(row) for row in rows]
+
+    def get_product(self, source_id: str) -> ProductRecord | None:
+        """Return one locally persisted product by source identifier."""
+
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    source_id,
+                    sku,
+                    name,
+                    brand,
+                    internal_category,
+                    source_category_id,
+                    price_usd,
+                    availability,
+                    url,
+                    image_url,
+                    description,
+                    specs_json,
+                    last_synced_at
+                FROM products
+                WHERE source_id = ?
+                """,
+                (source_id,),
+            ).fetchone()
+
+        return self._map_product_row(row) if row is not None else None
+
+    def get_products_by_source_ids(self, source_ids: list[str]) -> list[ProductRecord]:
+        """Return locally persisted products for the requested source IDs in input order."""
+
+        if not source_ids:
+            return []
+
+        placeholders = ", ".join("?" for _ in source_ids)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT
+                    source_id,
+                    sku,
+                    name,
+                    brand,
+                    internal_category,
+                    source_category_id,
+                    price_usd,
+                    availability,
+                    url,
+                    image_url,
+                    description,
+                    specs_json,
+                    last_synced_at
+                FROM products
+                WHERE source_id IN ({placeholders})
+                """,
+                source_ids,
+            ).fetchall()
+
+        products_by_id = {row["source_id"]: self._map_product_row(row) for row in rows}
         return [
-            ProductRecord(
-                source_id=row["source_id"],
-                sku=row["sku"],
-                name=row["name"],
-                brand=row["brand"],
-                internal_category=row["internal_category"],
-                source_category_id=row["source_category_id"],
-                price_usd=row["price_usd"],
-                availability=row["availability"],
-                url=row["url"],
-                image_url=row["image_url"],
-                description=row["description"],
-                specs=json.loads(row["specs_json"]),
-                last_synced_at=row["last_synced_at"],
-            )
-            for row in rows
+            products_by_id[source_id]
+            for source_id in source_ids
+            if source_id in products_by_id
         ]
 
     def list_distinct_brands(self, limit: int) -> list[str]:
@@ -253,3 +301,20 @@ class SQLiteCatalogRepository:
         connection = sqlite3.connect(self._db_path)
         connection.row_factory = sqlite3.Row
         return connection
+
+    def _map_product_row(self, row: sqlite3.Row) -> ProductRecord:
+        return ProductRecord(
+            source_id=row["source_id"],
+            sku=row["sku"],
+            name=row["name"],
+            brand=row["brand"],
+            internal_category=row["internal_category"],
+            source_category_id=row["source_category_id"],
+            price_usd=row["price_usd"],
+            availability=row["availability"],
+            url=row["url"],
+            image_url=row["image_url"],
+            description=row["description"],
+            specs=json.loads(row["specs_json"]),
+            last_synced_at=row["last_synced_at"],
+        )

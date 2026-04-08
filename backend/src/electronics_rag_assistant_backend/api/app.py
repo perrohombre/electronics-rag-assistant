@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from electronics_rag_assistant_backend.api.routes.assistant import router as assistant_router
 from electronics_rag_assistant_backend.api.routes.catalog import router as catalog_router
 from electronics_rag_assistant_backend.api.routes.health import router as health_router
+from electronics_rag_assistant_backend.api.routes.products import router as products_router
 
 
 def create_app() -> FastAPI:
@@ -18,4 +19,5 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(catalog_router)
     app.include_router(assistant_router)
+    app.include_router(products_router)
     return app
