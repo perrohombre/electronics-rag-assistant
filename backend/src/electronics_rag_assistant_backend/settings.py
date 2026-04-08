@@ -32,6 +32,22 @@ class Settings(BaseSettings):
         default=32,
         alias="OPENAI_EMBEDDING_BATCH_SIZE",
     )
+    openai_query_analysis_model: str = Field(
+        default="gpt-5.4-mini",
+        alias="OPENAI_QUERY_ANALYSIS_MODEL",
+    )
+    openai_query_analysis_timeout_seconds: float = Field(
+        default=10.0,
+        alias="OPENAI_QUERY_ANALYSIS_TIMEOUT_SECONDS",
+    )
+    openai_query_analysis_max_brands: int = Field(
+        default=200,
+        alias="OPENAI_QUERY_ANALYSIS_MAX_BRANDS",
+    )
+    openai_query_analysis_max_output_tokens: int = Field(
+        default=200,
+        alias="OPENAI_QUERY_ANALYSIS_MAX_OUTPUT_TOKENS",
+    )
     bestbuy_api_key: str = Field(default="", alias="BESTBUY_API_KEY")
     bestbuy_base_url: str = Field(
         default="https://api.bestbuy.com/v1",

@@ -222,6 +222,33 @@ class SQLiteCatalogRepository:
             for row in rows
         ]
 
+    def list_distinct_brands(self, limit: int) -> list[str]:
+        """Return distinct non-empty brands sorted case-insensitively."""
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT brand
+                FROM products
+                WHERE brand IS NOT NULL AND TRIM(brand) != ''
+                ORDER BY LOWER(TRIM(brand)), TRIM(brand)
+                """
+            ).fetchall()
+
+        brands: list[str] = []
+        seen: set[str] = set()
+        for row in rows:
+            brand = str(row["brand"]).strip()
+            brand_key = brand.casefold()
+            if not brand or brand_key in seen:
+                continue
+            seen.add(brand_key)
+            brands.append(brand)
+            if len(brands) >= limit:
+                break
+
+        return brands
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._db_path)
         connection.row_factory = sqlite3.Row

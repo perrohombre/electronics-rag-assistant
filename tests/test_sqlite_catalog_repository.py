@@ -148,3 +148,85 @@ def test_repository_replaces_existing_products_for_category(tmp_path) -> None:
     assert status.total_products == 1
     assert status.last_synced_at == second_synced_at
     assert status.categories[0].product_count == 1
+
+
+def test_repository_lists_distinct_brands_case_insensitively(tmp_path) -> None:
+    repository = SQLiteCatalogRepository(tmp_path / "catalog.db")
+    synced_at = datetime(2026, 4, 8, 12, 0, tzinfo=UTC)
+
+    repository.replace_category_snapshot(
+        CategorySnapshot(
+            internal_category=InternalCategory.MONITORS,
+            source_category_id="cat-2",
+            source_category_name="Monitors",
+            source_category_path=["Displays", "Monitors"],
+            source_category_url="https://example.com/monitors",
+            product_count=4,
+            last_synced_at=synced_at,
+        ),
+        [
+            ProductRecord(
+                source_id="bestbuy:21",
+                sku="21",
+                name="Monitor 21",
+                brand="Dell",
+                internal_category=InternalCategory.MONITORS,
+                source_category_id="cat-2",
+                price_usd=299.0,
+                availability="available",
+                url="https://example.com/21",
+                image_url=None,
+                description="Monitor",
+                specs={},
+                last_synced_at=synced_at,
+            ),
+            ProductRecord(
+                source_id="bestbuy:22",
+                sku="22",
+                name="Monitor 22",
+                brand="dell",
+                internal_category=InternalCategory.MONITORS,
+                source_category_id="cat-2",
+                price_usd=319.0,
+                availability="available",
+                url="https://example.com/22",
+                image_url=None,
+                description="Monitor",
+                specs={},
+                last_synced_at=synced_at,
+            ),
+            ProductRecord(
+                source_id="bestbuy:23",
+                sku="23",
+                name="Monitor 23",
+                brand=" LG ",
+                internal_category=InternalCategory.MONITORS,
+                source_category_id="cat-2",
+                price_usd=349.0,
+                availability="available",
+                url="https://example.com/23",
+                image_url=None,
+                description="Monitor",
+                specs={},
+                last_synced_at=synced_at,
+            ),
+            ProductRecord(
+                source_id="bestbuy:24",
+                sku="24",
+                name="Monitor 24",
+                brand="",
+                internal_category=InternalCategory.MONITORS,
+                source_category_id="cat-2",
+                price_usd=359.0,
+                availability="available",
+                url="https://example.com/24",
+                image_url=None,
+                description="Monitor",
+                specs={},
+                last_synced_at=synced_at,
+            ),
+        ],
+    )
+
+    assert repository.list_distinct_brands(limit=10) == ["Dell", "LG"]
+    assert repository.list_distinct_brands(limit=1) == ["Dell"]

@@ -8,7 +8,9 @@ from qdrant_client import QdrantClient
 from electronics_rag_assistant_backend.indexing.openai_embedder import OpenAIEmbedder
 from electronics_rag_assistant_backend.indexing.qdrant_product_index import QdrantProductIndex
 from electronics_rag_assistant_backend.services.catalog_index import CatalogIndexService
+from electronics_rag_assistant_backend.services.catalog_search import CatalogSearchService
 from electronics_rag_assistant_backend.services.catalog_sync import CatalogSyncService
+from electronics_rag_assistant_backend.services.query_analysis import QueryAnalysisService
 from electronics_rag_assistant_backend.settings import Settings, get_settings
 from electronics_rag_assistant_backend.source.bestbuy_client import BestBuyClient
 from electronics_rag_assistant_backend.storage.sqlite_catalog_repository import (
@@ -108,4 +110,36 @@ def get_catalog_index_service(
         product_index=product_index,
         embedder=embedder,
         embedding_model=settings.openai_embedding_model,
+    )
+
+
+def get_query_analysis_service(
+    settings: Settings = Depends(get_settings),
+    repository: SQLiteCatalogRepository = Depends(get_catalog_repository),
+) -> QueryAnalysisService:
+    """Return the LLM-backed query analysis service."""
+
+    return QueryAnalysisService(
+        repository=repository,
+        api_key=settings.openai_api_key,
+        model=settings.openai_query_analysis_model,
+        timeout_seconds=settings.openai_query_analysis_timeout_seconds,
+        max_brands=settings.openai_query_analysis_max_brands,
+        max_output_tokens=settings.openai_query_analysis_max_output_tokens,
+    )
+
+
+def get_catalog_search_service(
+    qdrant_client: QdrantClient = Depends(get_qdrant_client),
+    embedder: OpenAIEmbedder = Depends(get_embedder),
+    query_analysis_service: QueryAnalysisService = Depends(get_query_analysis_service),
+    settings: Settings = Depends(get_settings),
+) -> CatalogSearchService:
+    """Return the semantic retrieval service."""
+
+    return CatalogSearchService(
+        qdrant_client=qdrant_client,
+        embedder=embedder,
+        query_analysis_service=query_analysis_service,
+        collection_name=settings.qdrant_collection_name,
     )
