@@ -5,3 +5,4 @@ __pycache__/
 .ruff_cache/
 .DS_Store
 data/raw/*_test.csv
+data/raw/mediaexpert_laptops_more.csv
