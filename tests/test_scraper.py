@@ -1,9 +1,13 @@
 from datetime import UTC, datetime
+from email.message import Message
+from urllib.error import HTTPError
 
 from mediaexpert_laptops.scraper import (
     CSV_FIELDS,
+    ScraperFetchError,
     build_page_url,
     discover_last_page,
+    fetch_html,
     parse_laptop_offers,
     parse_price_pln,
 )
@@ -95,3 +99,24 @@ def test_build_page_url_replaces_existing_page_query() -> None:
     assert build_page_url("https://example.test/laptopy?sort=price&page=2", 3) == (
         "https://example.test/laptopy?sort=price&page=3"
     )
+
+
+def test_fetch_html_maps_http_403_to_actionable_error(monkeypatch) -> None:
+    def fake_urlopen(*args, **kwargs):
+        raise HTTPError(
+            url="https://www.mediaexpert.pl/laptopy",
+            code=403,
+            msg="Forbidden",
+            hdrs=Message(),
+            fp=None,
+        )
+
+    monkeypatch.setattr("mediaexpert_laptops.scraper.urlopen", fake_urlopen)
+
+    try:
+        fetch_html("https://www.mediaexpert.pl/laptopy", timeout_seconds=1)
+    except ScraperFetchError as exc:
+        assert "HTTP 403" in str(exc)
+        assert "--input-html" in str(exc)
+    else:
+        raise AssertionError("Expected ScraperFetchError")

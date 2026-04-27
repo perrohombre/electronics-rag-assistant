@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
+from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
@@ -54,6 +55,10 @@ CSV_FIELDS = [
     "data_pobrania",
     "zrodlo",
 ]
+
+
+class ScraperFetchError(RuntimeError):
+    """Raised when listing HTML cannot be fetched."""
 
 
 @dataclass(frozen=True)
@@ -113,9 +118,21 @@ def fetch_html(url: str, *, timeout_seconds: float) -> str:
             "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
         },
     )
-    with urlopen(request, timeout=timeout_seconds) as response:
-        charset = response.headers.get_content_charset() or "utf-8"
-        return response.read().decode(charset, errors="replace")
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            charset = response.headers.get_content_charset() or "utf-8"
+            return response.read().decode(charset, errors="replace")
+    except HTTPError as exc:
+        if exc.code == 403:
+            raise ScraperFetchError(
+                "Media Expert zwrocil HTTP 403. Strona blokuje automatyczne pobranie HTML. "
+                "Zapisz HTML listingu z przegladarki i uruchom scraper z --input-html."
+            ) from exc
+        raise ScraperFetchError(
+            f"Nie udalo sie pobrac strony {url}. HTTP {exc.code}: {exc.reason}"
+        ) from exc
+    except URLError as exc:
+        raise ScraperFetchError(f"Nie udalo sie pobrac strony {url}: {exc.reason}") from exc
 
 
 def parse_laptop_offers(
@@ -238,18 +255,27 @@ def main() -> None:
     else:
         pages = int(args.pages)
 
-    if args.input_html:
-        html = args.input_html.read_text(encoding="utf-8")
-        products = parse_laptop_offers(html, page_url=args.base_url)
-    else:
-        products = scrape_laptops(
-            listing_url=args.base_url,
-            pages=pages,
-            delay_seconds=args.delay,
-            timeout_seconds=args.timeout,
-        )
+    try:
+        if args.input_html:
+            html = args.input_html.read_text(encoding="utf-8")
+            products = parse_laptop_offers(html, page_url=args.base_url)
+        else:
+            products = scrape_laptops(
+                listing_url=args.base_url,
+                pages=pages,
+                delay_seconds=args.delay,
+                timeout_seconds=args.timeout,
+            )
+    except ScraperFetchError as exc:
+        parser.exit(2, f"Error: {exc}\n")
+
     write_products_csv(products, args.output)
     print(f"Saved {len(products)} laptop offers to {args.output}")
+    if len(products) < 20:
+        print(
+            "Warning: parsed fewer than 20 offers. "
+            "Check whether the input HTML contains the full product listing."
+        )
 
 
 @dataclass(frozen=True)
