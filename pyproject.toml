@@ -5,49 +5,30 @@ build-backend = "hatchling.build"
 [project]
 name = "electronics-rag-assistant"
 version = "0.1.0"
-description = "Prototype shopping assistant for consumer electronics built with RAG."
+description = "Laptop dataset scraper for a RAG shopping assistant prototype."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "fastapi>=0.115.0,<1.0.0",
-  "httpx>=0.28.0,<1.0.0",
-  "openai>=1.75.0,<2.0.0",
-  "pydantic-settings>=2.8.0,<3.0.0",
-  "qdrant-client>=1.13.0,<2.0.0",
-  "streamlit>=1.44.0,<2.0.0",
-  "uvicorn[standard]>=0.34.0,<1.0.0",
+  "beautifulsoup4>=4.12.0,<5.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3.0,<9.0.0",
-  "pytest-cov>=6.0.0,<7.0.0",
   "ruff>=0.11.0,<1.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = [
-  "backend/src/electronics_rag_assistant_backend",
-  "shared/src/electronics_rag_assistant_shared",
-]
+packages = ["src/mediaexpert_laptops"]
 
 [tool.pytest.ini_options]
-pythonpath = [
-  ".",
-  "backend/src",
-  "shared/src",
-]
+pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = [
-  "backend/src",
-  "frontend",
-  "shared/src",
-  "tests",
-]
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]

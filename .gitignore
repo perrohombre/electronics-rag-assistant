@@ -1,32 +1,7 @@
-# Python
+.venv/
 __pycache__/
 *.py[cod]
-.Python
-.venv/
-venv/
-
-# Tooling
 .pytest_cache/
-.mypy_cache/
 .ruff_cache/
-.coverage
-htmlcov/
-
-# Environment
-.env
-.env.*
-!.env.example
-
-# Editors
 .DS_Store
-.idea/
-.vscode/
 
-# Build artifacts
-build/
-dist/
-*.egg-info/
-data/
-
-# Streamlit
-.streamlit/secrets.toml
