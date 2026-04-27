@@ -10,11 +10,20 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "beautifulsoup4>=4.12.0,<5.0.0",
+  "fastapi>=0.115.0,<1.0.0",
+  "openai>=1.75.0,<2.0.0",
   "playwright>=1.49.0,<2.0.0",
+  "pydantic-settings>=2.8.0,<3.0.0",
+  "qdrant-client>=1.13.0,<2.0.0",
+  "requests>=2.32.0,<3.0.0",
+  "streamlit>=1.44.0,<2.0.0",
+  "uvicorn[standard]>=0.34.0,<1.0.0",
 ]
 
 [project.scripts]
 scrape-mediaexpert-laptops = "mediaexpert_laptops.scraper:main"
+import-laptops = "mediaexpert_laptops.rag.cli:import_catalog_main"
+index-laptops = "mediaexpert_laptops.rag.cli:index_catalog_main"
 
 [project.optional-dependencies]
 dev = [

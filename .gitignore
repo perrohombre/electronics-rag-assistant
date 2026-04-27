@@ -4,5 +4,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .DS_Store
+.env
+data/catalog.db
 data/raw/*_test.csv
 data/raw/mediaexpert_laptops_more.csv

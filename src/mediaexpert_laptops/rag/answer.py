@@ -1,0 +1,85 @@
+"""Grounded answer generation."""
+
+from __future__ import annotations
+
+from mediaexpert_laptops.rag.models import AnswerResponse, SearchRequest
+from mediaexpert_laptops.rag.search import SearchService
+
+
+class AnswerService:
+    """Generate short Polish recommendations from retrieved laptops."""
+
+    def __init__(self, *, search_service: SearchService, api_key: str, model: str) -> None:
+        self._search_service = search_service
+        self._api_key = api_key
+        self._model = model
+
+    def answer(self, request: SearchRequest) -> AnswerResponse:
+        """Return grounded answer plus source results."""
+
+        search_response = self._search_service.search(request)
+        if not search_response.results:
+            return AnswerResponse(
+                query=request.query,
+                parsed_query=search_response.parsed_query,
+                answer="Nie znalazłem w danych laptopów spełniających jawne warunki z zapytania.",
+                results=[],
+            )
+
+        if not self._api_key:
+            answer = self._fallback_answer(request.query, search_response.results)
+        else:
+            answer = self._llm_answer(request.query, search_response.results)
+
+        return AnswerResponse(
+            query=request.query,
+            parsed_query=search_response.parsed_query,
+            answer=answer,
+            results=search_response.results,
+        )
+
+    def _llm_answer(self, query: str, results) -> str:
+        try:
+            from openai import OpenAI
+
+            context = "\n\n".join(
+                (
+                    f"Nazwa: {result.laptop.name}\n"
+                    f"Cena: {result.laptop.price_pln:.2f} zł\n"
+                    f"Opis: {result.laptop.semantic_description}\n"
+                    f"URL: {result.laptop.url}"
+                )
+                for result in results
+            )
+            client = OpenAI(api_key=self._api_key)
+            response = client.responses.create(
+                model=self._model,
+                input=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Odpowiadasz po polsku jako asystent zakupowy. Korzystaj wyłącznie "
+                            "z przekazanych laptopów. Nie wymyślaj modeli ani parametrów."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Zapytanie: {query}\n\nLaptopy:\n{context}",
+                    },
+                ],
+            )
+            return response.output_text
+        except Exception:
+            return self._fallback_answer(query, results)
+
+    def _fallback_answer(self, query: str, results) -> str:
+        best = results[0].laptop
+        alternatives = ", ".join(result.laptop.name for result in results[1:3])
+        answer = (
+            f"Najlepiej pasuje {best.name} za {best.price_pln:.2f} zł. "
+            f"{best.semantic_description}"
+        )
+        if alternatives:
+            answer += f" Warto porównać go też z: {alternatives}."
+        return answer
+

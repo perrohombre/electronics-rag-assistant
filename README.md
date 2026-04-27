@@ -1,17 +1,56 @@
 # Electronics RAG Assistant
 
-Nowy start projektu.
+Lokalny prototyp RAG dla wyszukiwania laptopów z datasetu Media Expert.
+Retrieval działa w modelu: jawne filtry z zapytania -> Qdrant semantic search po `opis_semantyczny`.
 
-Pierwszy krok to lokalny dataset laptopów tworzony z listingów Media Expert.
-Scraper pobiera HTML kategorii, wyciąga karty produktów i zapisuje polski snapshot CSV.
-Plik `data/raw/mediaexpert_laptops.csv` w repo jest tylko małym seedem startowym.
+## RAG
 
-## Scraping laptopów
-
-Najpierw zainstaluj projekt w aktywnym środowisku:
+Zainstaluj projekt i przygotuj env:
 
 ```bash
 python -m pip install -e ".[dev]"
+cp .env.example .env
+```
+
+Uzupełnij `OPENAI_API_KEY`, potem uruchom Qdrant:
+
+```bash
+docker compose -f infra/docker-compose.yml up -d
+```
+
+Zaimportuj CSV do SQLite i zbuduj indeks Qdrant:
+
+```bash
+import-laptops
+index-laptops
+```
+
+Uruchom API:
+
+```bash
+uvicorn mediaexpert_laptops.rag.app:app --reload --host 127.0.0.1 --port 8000
+```
+
+Przykładowe zapytanie:
+
+```bash
+curl -X POST http://127.0.0.1:8000/answer \
+  -H "Content-Type: application/json" \
+  -d '{"query":"laptop do 4000 zł do programowania","limit":5}'
+```
+
+UI Streamlit:
+
+```bash
+streamlit run src/mediaexpert_laptops/rag/ui.py
+```
+
+## Dataset i scraping
+
+Obecny dataset `data/raw/mediaexpert_laptops.csv` zawiera 150 laptopów i ręcznie dodaną
+kolumnę `opis_semantyczny`, która jest głównym tekstem do embeddingów.
+
+```bash
 python -m playwright install chromium
 ```
 
