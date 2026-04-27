@@ -10,6 +10,7 @@ from mediaexpert_laptops.scraper import (
     fetch_html,
     parse_laptop_offers,
     parse_price_pln,
+    scrape_laptops,
 )
 
 SAMPLE_HTML = """
@@ -19,13 +20,24 @@ SAMPLE_HTML = """
       Laptop HP 15-FC0001NW 15.6" IPS R7 16GB RAM 512GB SSD Windows 11 Home
     </a>
     <p>Kod: 2127389</p>
-    <p>Procesor: AMD Ryzen 7 7730U</p>
-    <p>RAM: 16GB, DDR4, 3200MHz</p>
-    <p>Dysk SSD: 512GB PCIe NVMe</p>
-    <p>Karta graficzna: AMD Radeon Graphics</p>
-    <p>Ekran: 15.6", 1920 x 1080px, Matryca IPS</p>
-    <p>System operacyjny: Windows 11 Home</p>
-    <p>2 599 97 zl</p>
+    <p>Procesor:</p>
+    <p>AMD Ryzen 7 7730U</p>
+    <p>RAM:</p>
+    <p>16GB, DDR4, 3200MHz</p>
+    <p>Dysk SSD:</p>
+    <p>512GB PCIe NVMe</p>
+    <p>Karta graficzna:</p>
+    <p>AMD Radeon Graphics</p>
+    <p>Ekran:</p>
+    <p>15.6", 1920 x 1080px, Matryca IPS</p>
+    <p>System operacyjny:</p>
+    <p>Windows 11 Home</p>
+    <p>Taniej o</p>
+    <p>700,00 zl</p>
+    <p>Cena z kodem:</p>
+    <span>2 599</span>
+    <span>97</span>
+    <span>zl</span>
     <button>Do koszyka</button>
 
     <a href="/komputery-i-tablety/laptopy-i-ultrabooki/laptopy/laptop-apple-air">
@@ -40,6 +52,10 @@ SAMPLE_HTML = """
     <p>Taniej o 200,00 zl</p>
     <p>5 799 00 zl</p>
     <button>Do koszyka</button>
+
+    <a href="/komputery-i-tablety/laptopy-i-ultrabooki/laptopy/rodzaj-laptopa_laptop-dla-graczy">
+      Laptop dla graczy (707)
+    </a>
   </body>
 </html>
 """
@@ -120,3 +136,48 @@ def test_fetch_html_maps_http_403_to_actionable_error(monkeypatch) -> None:
         assert "--input-html" in str(exc)
     else:
         raise AssertionError("Expected ScraperFetchError")
+
+
+def test_scrape_laptops_uses_playwright_fetcher_by_default(monkeypatch) -> None:
+    calls = []
+
+    def fake_playwright_fetch(url, *, timeout_seconds, headless, scroll_steps):
+        calls.append((url, timeout_seconds, headless, scroll_steps))
+        return SAMPLE_HTML
+
+    monkeypatch.setattr(
+        "mediaexpert_laptops.scraper.fetch_html_with_playwright",
+        fake_playwright_fetch,
+    )
+
+    offers = scrape_laptops(pages=1, timeout_seconds=7, headless=False, scroll_steps=2)
+
+    assert len(offers) == 2
+    assert calls == [
+        (
+            "https://www.mediaexpert.pl/komputery-i-tablety/laptopy-i-ultrabooki/laptopy",
+            7,
+            False,
+            2,
+        )
+    ]
+
+
+def test_scrape_laptops_can_use_urllib_fetcher(monkeypatch) -> None:
+    calls = []
+
+    def fake_urllib_fetch(url, *, timeout_seconds):
+        calls.append((url, timeout_seconds))
+        return SAMPLE_HTML
+
+    monkeypatch.setattr("mediaexpert_laptops.scraper.fetch_html", fake_urllib_fetch)
+
+    offers = scrape_laptops(pages=1, fetcher="urllib", timeout_seconds=3)
+
+    assert len(offers) == 2
+    assert calls == [
+        (
+            "https://www.mediaexpert.pl/komputery-i-tablety/laptopy-i-ultrabooki/laptopy",
+            3,
+        )
+    ]

@@ -25,6 +25,7 @@ USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
+FetcherName = Literal["playwright", "urllib"]
 
 SPEC_LABELS = {
     "Procesor": "processor",
@@ -108,7 +109,7 @@ class LaptopOffer:
 
 
 def fetch_html(url: str, *, timeout_seconds: float) -> str:
-    """Fetch a listing page."""
+    """Fetch a listing page with urllib."""
 
     request = Request(
         url,
@@ -133,6 +134,57 @@ def fetch_html(url: str, *, timeout_seconds: float) -> str:
         ) from exc
     except URLError as exc:
         raise ScraperFetchError(f"Nie udalo sie pobrac strony {url}: {exc.reason}") from exc
+
+
+def fetch_html_with_playwright(
+    url: str,
+    *,
+    timeout_seconds: float,
+    headless: bool,
+    scroll_steps: int,
+) -> str:
+    """Fetch a rendered listing page with Playwright Chromium."""
+
+    try:
+        from playwright.sync_api import Error as PlaywrightError
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise ScraperFetchError(
+            "Brakuje pakietu playwright. Uruchom: python -m pip install -e \".[dev]\""
+        ) from exc
+
+    timeout_ms = int(timeout_seconds * 1000)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                headless=headless,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            context = browser.new_context(
+                user_agent=USER_AGENT,
+                locale="pl-PL",
+                timezone_id="Europe/Warsaw",
+                viewport={"width": 1440, "height": 1200},
+            )
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            _accept_cookie_banner(page)
+            _wait_for_listing_render(page, timeout_ms=timeout_ms)
+            _scroll_listing(page, scroll_steps=scroll_steps)
+            html = page.content()
+            browser.close()
+            return html
+    except PlaywrightTimeoutError as exc:
+        raise ScraperFetchError(
+            f"Playwright przekroczyl limit czasu podczas pobierania {url}. "
+            "Sprobuj trybu --headed albo zwieksz --timeout."
+        ) from exc
+    except PlaywrightError as exc:
+        raise ScraperFetchError(
+            f"Playwright nie mogl pobrac strony {url}: {exc}. "
+            "Jesli Chromium nie jest zainstalowany, uruchom: python -m playwright install chromium"
+        ) from exc
 
 
 def parse_laptop_offers(
@@ -183,10 +235,19 @@ def scrape_laptops(
     pages: int | Literal["all"] = 1,
     delay_seconds: float = 1.0,
     timeout_seconds: float = 20.0,
+    fetcher: FetcherName = "playwright",
+    headless: bool = True,
+    scroll_steps: int = 4,
 ) -> list[LaptopOffer]:
     """Fetch listing pages and return parsed laptop offers."""
 
-    first_html = fetch_html(listing_url, timeout_seconds=timeout_seconds)
+    fetch_page = _build_fetcher(
+        fetcher=fetcher,
+        timeout_seconds=timeout_seconds,
+        headless=headless,
+        scroll_steps=scroll_steps,
+    )
+    first_html = fetch_page(listing_url)
     page_count = discover_last_page(first_html) if pages == "all" else pages
     page_count = max(1, int(page_count))
 
@@ -195,7 +256,7 @@ def scrape_laptops(
         if delay_seconds > 0:
             time.sleep(delay_seconds)
         page_url = build_page_url(listing_url, page_number)
-        html = fetch_html(page_url, timeout_seconds=timeout_seconds)
+        html = fetch_page(page_url)
         collected.extend(parse_laptop_offers(html, page_url=page_url))
 
     return _deduplicate_offers(collected)
@@ -247,6 +308,23 @@ def main() -> None:
         help="Delay between requests in seconds.",
     )
     parser.add_argument("--timeout", type=float, default=20.0, help="HTTP timeout in seconds.")
+    parser.add_argument(
+        "--fetcher",
+        choices=["playwright", "urllib"],
+        default="playwright",
+        help="HTML fetcher used for live scraping.",
+    )
+    parser.add_argument(
+        "--headed",
+        action="store_true",
+        help="Show the Chromium window while Playwright fetches listing pages.",
+    )
+    parser.add_argument(
+        "--scroll-steps",
+        type=int,
+        default=4,
+        help="Number of scroll steps Playwright performs before reading HTML.",
+    )
     args = parser.parse_args()
 
     pages: int | Literal["all"]
@@ -265,6 +343,9 @@ def main() -> None:
                 pages=pages,
                 delay_seconds=args.delay,
                 timeout_seconds=args.timeout,
+                fetcher=args.fetcher,
+                headless=not args.headed,
+                scroll_steps=args.scroll_steps,
             )
     except ScraperFetchError as exc:
         parser.exit(2, f"Error: {exc}\n")
@@ -287,6 +368,51 @@ class ProductLink:
     url: str
 
 
+def _build_fetcher(
+    *,
+    fetcher: FetcherName,
+    timeout_seconds: float,
+    headless: bool,
+    scroll_steps: int,
+):
+    if fetcher == "urllib":
+        return lambda url: fetch_html(url, timeout_seconds=timeout_seconds)
+    return lambda url: fetch_html_with_playwright(
+        url,
+        timeout_seconds=timeout_seconds,
+        headless=headless,
+        scroll_steps=scroll_steps,
+    )
+
+
+def _accept_cookie_banner(page) -> None:
+    for label in ("Akceptuje", "Akceptuję", "Zgadzam", "OK"):
+        try:
+            page.get_by_text(label, exact=False).first.click(timeout=1500)
+            return
+        except Exception:
+            continue
+
+
+def _wait_for_listing_render(page, *, timeout_ms: int) -> None:
+    selectors = [
+        'a[href*="/komputery-i-tablety/laptopy-i-ultrabooki/laptopy"]',
+        "text=Laptop",
+    ]
+    for selector in selectors:
+        try:
+            page.wait_for_selector(selector, timeout=timeout_ms)
+            return
+        except Exception:
+            continue
+
+
+def _scroll_listing(page, *, scroll_steps: int) -> None:
+    for _ in range(max(0, scroll_steps)):
+        page.mouse.wheel(0, 1600)
+        page.wait_for_timeout(500)
+
+
 def _find_product_links(soup: BeautifulSoup, page_url: str) -> list[ProductLink]:
     links: list[ProductLink] = []
     seen_urls: set[str] = set()
@@ -300,12 +426,19 @@ def _find_product_links(soup: BeautifulSoup, page_url: str) -> list[ProductLink]
         url = urljoin(page_url, str(anchor["href"]))
         if "/komputery-i-tablety/laptopy-i-ultrabooki/laptopy" not in url:
             continue
+        if not _looks_like_product_url(url):
+            continue
         if url in seen_urls:
             continue
         seen_urls.add(url)
         links.append(ProductLink(tag=anchor, name=name, url=url))
 
     return links
+
+
+def _looks_like_product_url(url: str) -> bool:
+    slug = urlparse(url).path.rstrip("/").split("/")[-1]
+    return slug.startswith(("laptop-", "notebook-"))
 
 
 def _extract_texts_until_next_product(anchor: Tag, next_product_anchor: Tag | None) -> list[str]:
@@ -365,11 +498,15 @@ def _build_offer(name: str, url: str, block_texts: list[str], scraped_at: str) -
 
 def _extract_specs(block_texts: list[str]) -> dict[str, str]:
     specs: dict[str, str] = {}
-    for text in block_texts:
+    for index, text in enumerate(block_texts):
         for source_label, target_key in SPEC_LABELS.items():
             prefix = f"{source_label}:"
             if text.startswith(prefix):
-                specs[target_key] = text.removeprefix(prefix).strip()
+                value = text.removeprefix(prefix).strip()
+                if not value and index + 1 < len(block_texts):
+                    value = block_texts[index + 1]
+                if value:
+                    specs[target_key] = value
     return specs
 
 
@@ -382,10 +519,40 @@ def _extract_sku(block_texts: list[str]) -> str | None:
 
 
 def _extract_price_pln(block_texts: list[str]) -> float | None:
+    for marker in ("Cena z kodem:", "Cena:", "Cena aktualna:"):
+        price = _extract_split_price_after_marker(block_texts, marker)
+        if price is not None:
+            return price
+
+    split_price = _extract_first_split_price(block_texts)
+    if split_price is not None:
+        return split_price
+
     for text in block_texts:
         value = parse_price_pln(text)
         if value is not None:
             return value
+    return None
+
+
+def _extract_split_price_after_marker(block_texts: list[str], marker: str) -> float | None:
+    for index, text in enumerate(block_texts):
+        if text == marker:
+            return _extract_first_split_price(block_texts[index + 1 : index + 6])
+    return None
+
+
+def _extract_first_split_price(block_texts: list[str]) -> float | None:
+    for index, text in enumerate(block_texts):
+        if _clean_text(text).replace("zł", "zl") != "zl" or index < 2:
+            continue
+        integer_part = block_texts[index - 2]
+        cents = block_texts[index - 1]
+        if not re.fullmatch(r"\d{1,3}(?: \d{3})*", integer_part):
+            continue
+        if not re.fullmatch(r"\d{2}", cents):
+            continue
+        return float(f"{integer_part.replace(' ', '')}.{cents}")
     return None
 
 
