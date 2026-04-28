@@ -33,10 +33,27 @@ class SearchService:
     def search(self, request: SearchRequest) -> SearchResponse:
         """Search laptops."""
 
-        parsed = self._query_analysis.analyze(request.query)
+        decision = self._query_analysis.analyze(request.query)
+        parsed = decision.filters
         candidates_before = self._repository.count_laptops()
         candidates_after = self._repository.count_matching_filters(parsed)
-        query_vector = self._embedder.embed_query(request.query)
+
+        if decision.action == "ask_clarification":
+            return SearchResponse(
+                query=request.query,
+                parsed_query=parsed,
+                total_candidates=0,
+                results=[],
+                trace=RetrievalTrace(
+                    decision=decision,
+                    parsed_filters=parsed,
+                    candidates_before_filtering=candidates_before,
+                    candidates_after_filtering=candidates_after,
+                    qdrant_hits=[],
+                ),
+            )
+
+        query_vector = self._embedder.embed_query(decision.semantic_query or request.query)
         matches = self._index.search(
             query_vector=query_vector,
             parsed_query=parsed,
@@ -55,6 +72,7 @@ class SearchService:
             total_candidates=len(results),
             results=results,
             trace=RetrievalTrace(
+                decision=decision,
                 parsed_filters=parsed,
                 candidates_before_filtering=candidates_before,
                 candidates_after_filtering=candidates_after,

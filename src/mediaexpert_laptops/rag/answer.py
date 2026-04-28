@@ -22,6 +22,16 @@ class AnswerService:
         trace = search_response.trace.model_copy(
             update={"context_sent_to_answer_llm": answer_context or None}
         )
+        if trace.decision.action == "ask_clarification":
+            return AnswerResponse(
+                query=request.query,
+                parsed_query=search_response.parsed_query,
+                answer=trace.decision.clarifying_question
+                or "Doprecyzuj proszę, jakiego laptopa szukasz.",
+                results=[],
+                trace=trace,
+            )
+
         if not search_response.results:
             return AnswerResponse(
                 query=request.query,

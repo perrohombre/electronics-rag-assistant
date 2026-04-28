@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -56,6 +56,18 @@ class ParsedLaptopQuery(BaseModel):
     screen_size_max: float | None = None
 
 
+class QueryDecision(BaseModel):
+    """Decision on whether to search immediately or ask a clarifying question."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["search", "search_with_assumption", "ask_clarification"] = "search"
+    filters: ParsedLaptopQuery = Field(default_factory=ParsedLaptopQuery)
+    semantic_query: str | None = None
+    clarifying_question: str | None = None
+    assumptions: list[str] = Field(default_factory=list)
+
+
 class SearchRequest(BaseModel):
     """Search request accepted by API and UI."""
 
@@ -82,6 +94,7 @@ class QdrantHit(BaseModel):
 class RetrievalTrace(BaseModel):
     """Transparent trace of the RAG retrieval pipeline."""
 
+    decision: QueryDecision
     parsed_filters: ParsedLaptopQuery
     candidates_before_filtering: int
     candidates_after_filtering: int

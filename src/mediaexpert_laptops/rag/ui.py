@@ -43,6 +43,7 @@ def main() -> None:
 
     if submitted:
         st.session_state["last_query"] = query
+        st.session_state["last_limit"] = limit
         _run_search(query, limit)
 
     payload = st.session_state.get("payload")
@@ -51,6 +52,7 @@ def main() -> None:
         return
 
     _render_answer(payload)
+    _render_clarification(payload)
     _render_pipeline(payload)
     _render_results(payload)
 
@@ -60,6 +62,8 @@ def _initialize_state() -> None:
         st.session_state["payload"] = None
     if "last_error" not in st.session_state:
         st.session_state["last_error"] = None
+    if "last_limit" not in st.session_state:
+        st.session_state["last_limit"] = 5
 
 
 def _run_search(query: str, limit: int) -> None:
@@ -108,8 +112,41 @@ def _render_answer(payload: dict[str, Any]) -> None:
     st.markdown(f"<div class='answer'>{payload['answer']}</div>", unsafe_allow_html=True)
 
 
+def _render_clarification(payload: dict[str, Any]) -> None:
+    decision = payload["trace"]["decision"]
+    action = decision["action"]
+    question = decision.get("clarifying_question")
+
+    if action == "search_with_assumption":
+        assumptions = decision.get("assumptions") or []
+        if assumptions:
+            st.warning("Założenie systemu: " + " ".join(assumptions))
+        if question:
+            st.caption(f"Pytanie pomocnicze: {question}")
+        return
+
+    if action != "ask_clarification":
+        return
+
+    st.markdown("## Doprecyzowanie")
+    st.info(question or "Doprecyzuj proszę, jakiego laptopa szukasz.")
+    with st.form("clarification_form"):
+        clarification = st.text_input(
+            "Twoja odpowiedź",
+            placeholder="np. do 3500 zł, do nauki i programowania",
+        )
+        submitted = st.form_submit_button("Kontynuuj rozmowę")
+
+    if submitted and clarification.strip():
+        combined_query = f"{payload['query']}. Doprecyzowanie użytkownika: {clarification.strip()}"
+        st.session_state["last_query"] = combined_query
+        _run_search(combined_query, st.session_state["last_limit"])
+        st.rerun()
+
+
 def _render_pipeline(payload: dict[str, Any]) -> None:
     trace = payload["trace"]
+    decision = trace["decision"]
     parsed_filters = trace["parsed_filters"]
     qdrant_hits = trace["qdrant_hits"]
     context = trace.get("context_sent_to_answer_llm")
@@ -125,22 +162,26 @@ def _render_pipeline(payload: dict[str, Any]) -> None:
             _format_non_empty_filters(parsed_filters),
         ),
         (
-            "3. Filtrowanie katalogu",
+            "3. Decyzja dialogowa",
+            _format_decision(decision),
+        ),
+        (
+            "4. Filtrowanie katalogu",
             (
                 f"Przed filtrowaniem: {trace['candidates_before_filtering']} produktów. "
                 f"Po filtrach twardych: {trace['candidates_after_filtering']} produktów."
             ),
         ),
         (
-            "4. Semantic search w Qdrant",
+            "5. Semantic search w Qdrant",
             f"Qdrant zwrócił {len(qdrant_hits)} hitów dla embeddingu zapytania.",
         ),
         (
-            "5. Kontekst dla LLM",
+            "6. Kontekst dla LLM",
             "Top wyniki zostały zamienione na tekstowy kontekst z parametrami i opisami laptopów.",
         ),
         (
-            "6. Odpowiedź końcowa",
+            "7. Odpowiedź końcowa",
             "Model odpowiada wyłącznie na podstawie kontekstu z poprzedniego kroku.",
         ),
     ]
@@ -160,6 +201,9 @@ def _render_pipeline(payload: dict[str, Any]) -> None:
 
     with st.expander("Szczegóły: parsed filters JSON", expanded=False):
         st.json(parsed_filters)
+
+    with st.expander("Szczegóły: decision JSON", expanded=False):
+        st.json(decision)
 
     with st.expander("Szczegóły: Qdrant hits", expanded=False):
         if qdrant_hits:
@@ -229,6 +273,18 @@ def _format_non_empty_filters(parsed_filters: dict[str, Any]) -> str:
     if not non_empty:
         return "Brak jawnych filtrów. Retrieval działa tylko semantycznie."
     return ", ".join(f"{key}={value}" for key, value in non_empty.items())
+
+
+def _format_decision(decision: dict[str, Any]) -> str:
+    action_labels = {
+        "search": "Szukaj od razu",
+        "search_with_assumption": "Szukaj z miękkim założeniem",
+        "ask_clarification": "Zadaj pytanie doprecyzowujące",
+    }
+    label = action_labels.get(decision["action"], decision["action"])
+    if decision.get("clarifying_question"):
+        return f"{label}. Pytanie: {decision['clarifying_question']}"
+    return label
 
 
 def _inject_css() -> None:
