@@ -43,6 +43,7 @@ def main() -> None:
 
     if submitted:
         st.session_state["last_query"] = query
+        st.session_state["base_query"] = _strip_clarification(query)
         st.session_state["last_limit"] = limit
         _run_search(query, limit)
 
@@ -64,6 +65,8 @@ def _initialize_state() -> None:
         st.session_state["last_error"] = None
     if "last_limit" not in st.session_state:
         st.session_state["last_limit"] = 5
+    if "base_query" not in st.session_state:
+        st.session_state["base_query"] = "laptop do 4000 zł do programowania"
 
 
 def _run_search(query: str, limit: int) -> None:
@@ -117,6 +120,10 @@ def _render_clarification(payload: dict[str, Any]) -> None:
     action = decision["action"]
     question = decision.get("clarifying_question")
 
+    if action == "unsupported":
+        st.warning(question or "Obecny katalog obejmuje tylko laptopy.")
+        return
+
     if action == "search_with_assumption":
         assumptions = decision.get("assumptions") or []
         if assumptions:
@@ -138,7 +145,8 @@ def _render_clarification(payload: dict[str, Any]) -> None:
         submitted = st.form_submit_button("Kontynuuj rozmowę")
 
     if submitted and clarification.strip():
-        combined_query = f"{payload['query']}. Doprecyzowanie użytkownika: {clarification.strip()}"
+        base_query = st.session_state.get("base_query") or _strip_clarification(payload["query"])
+        combined_query = _build_clarified_query(base_query, clarification.strip())
         st.session_state["last_query"] = combined_query
         _run_search(combined_query, st.session_state["last_limit"])
         st.rerun()
@@ -280,11 +288,21 @@ def _format_decision(decision: dict[str, Any]) -> str:
         "search": "Szukaj od razu",
         "search_with_assumption": "Szukaj z miękkim założeniem",
         "ask_clarification": "Zadaj pytanie doprecyzowujące",
+        "unsupported": "Produkt poza obsługiwaną domeną",
     }
     label = action_labels.get(decision["action"], decision["action"])
     if decision.get("clarifying_question"):
         return f"{label}. Pytanie: {decision['clarifying_question']}"
     return label
+
+
+def _strip_clarification(query: str) -> str:
+    marker = ". Doprecyzowanie użytkownika:"
+    return query.split(marker, maxsplit=1)[0].strip()
+
+
+def _build_clarified_query(base_query: str, clarification: str) -> str:
+    return f"{_strip_clarification(base_query)}. Doprecyzowanie użytkownika: {clarification}"
 
 
 def _inject_css() -> None:

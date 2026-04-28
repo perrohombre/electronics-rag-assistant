@@ -60,3 +60,14 @@ def test_fallback_query_analysis_searches_with_assumption_when_semantics_are_cle
     assert decision.filters.max_price_pln is None
     assert decision.clarifying_question == "Jaki maksymalny budżet w złotówkach mam przyjąć?"
     assert decision.assumptions
+
+
+def test_fallback_query_analysis_rejects_products_outside_laptop_domain() -> None:
+    service = QueryAnalysisService(api_key="", model="unused", known_brands=["LENOVO"])
+
+    decision = service.analyze("klawiatura do laptopa")
+
+    assert decision.action == "unsupported"
+    assert decision.clarifying_question == (
+        "Obecny katalog obejmuje tylko laptopy. Nie mogę wyszukać tego typu produktu."
+    )

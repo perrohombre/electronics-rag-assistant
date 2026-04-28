@@ -31,6 +31,15 @@ class AnswerService:
                 results=[],
                 trace=trace,
             )
+        if trace.decision.action == "unsupported":
+            return AnswerResponse(
+                query=request.query,
+                parsed_query=search_response.parsed_query,
+                answer=trace.decision.clarifying_question
+                or "Obecny katalog obejmuje tylko laptopy.",
+                results=[],
+                trace=trace,
+            )
 
         if not search_response.results:
             return AnswerResponse(

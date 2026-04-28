@@ -35,9 +35,12 @@ class QueryAnalysisService:
                             "Nie zgaduj zastosowania, kategorii ani parametrów. Jeśli warunek nie "
                             "jest jasno podany, ustaw null. Marka musi być jedną z: "
                             f"{', '.join(self._known_brands)}. "
-                            "Dodatkowo wybierasz action: search, search_with_assumption albo "
-                            "ask_clarification. Nie pytaj o doprecyzowanie, jeśli zapytanie ma "
-                            "wystarczający sens semantyczny, np. laptop gamingowy albo do nauki. "
+                            "Dodatkowo wybierasz action: search, search_with_assumption, "
+                            "ask_clarification albo unsupported. Użyj unsupported, gdy użytkownik "
+                            "szuka produktu spoza katalogu laptopów, np. klawiatury, myszy, "
+                            "monitora albo zasilacza. Nie pytaj o doprecyzowanie, jeśli "
+                            "zapytanie ma wystarczający sens semantyczny, np. laptop gamingowy "
+                            "albo do nauki. "
                             "Zapytaj tylko wtedy, gdy brak informacji blokuje sensowną "
                             "rekomendację albo użytkownik używa pojęcia wymagającego progu, "
                             "np. tani, budżetowy, niedrogi, bez podania kwoty. Jeśli da się "
@@ -112,6 +115,21 @@ class QueryAnalysisService:
         action = "search"
         clarifying_question = None
         assumptions: list[str] = []
+        unsupported_words = (
+            "klawiatura",
+            "klawiaturę",
+            "klawiature",
+            "mysz",
+            "myszka",
+            "monitor",
+            "słuchawki",
+            "sluchawki",
+            "telefon",
+            "smartfon",
+            "zasilacz",
+            "torba",
+            "plecak",
+        )
         budget_words = ("budżetowy", "budzetowy", "tani", "taniego", "niedrogi", "niedrogiego")
         broad_queries = {
             "laptop",
@@ -139,7 +157,12 @@ class QueryAnalysisService:
             )
         )
 
-        if has_budget_word and not has_clear_budget:
+        if any(word in text for word in unsupported_words):
+            action = "unsupported"
+            clarifying_question = (
+                "Obecny katalog obejmuje tylko laptopy. Nie mogę wyszukać tego typu produktu."
+            )
+        elif has_budget_word and not has_clear_budget:
             action = "search_with_assumption" if has_semantic_signal else "ask_clarification"
             clarifying_question = "Jaki maksymalny budżet w złotówkach mam przyjąć?"
             assumptions.append("Nie ustawiono filtra ceny, bo użytkownik nie podał kwoty.")
@@ -163,7 +186,7 @@ class QueryAnalysisService:
             parsed.brand = None
         elif parsed.brand:
             parsed.brand = parsed.brand.upper()
-        if decision.action != "ask_clarification":
+        if decision.action not in {"ask_clarification", "unsupported"}:
             decision.clarifying_question = decision.clarifying_question or None
         if not decision.semantic_query:
             decision.semantic_query = query

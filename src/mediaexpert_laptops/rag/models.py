@@ -61,7 +61,9 @@ class QueryDecision(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["search", "search_with_assumption", "ask_clarification"] = "search"
+    action: Literal["search", "search_with_assumption", "ask_clarification", "unsupported"] = (
+        "search"
+    )
     filters: ParsedLaptopQuery = Field(default_factory=ParsedLaptopQuery)
     semantic_query: str | None = None
     clarifying_question: str | None = None

@@ -38,7 +38,7 @@ class SearchService:
         candidates_before = self._repository.count_laptops()
         candidates_after = self._repository.count_matching_filters(parsed)
 
-        if decision.action == "ask_clarification":
+        if decision.action in {"ask_clarification", "unsupported"}:
             return SearchResponse(
                 query=request.query,
                 parsed_query=parsed,
