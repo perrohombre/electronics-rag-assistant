@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -68,6 +70,25 @@ class SearchResult(BaseModel):
     laptop: LaptopRecord
 
 
+class QdrantHit(BaseModel):
+    """One raw Qdrant hit before repository hydration."""
+
+    rank: int
+    source_id: str
+    score: float
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class RetrievalTrace(BaseModel):
+    """Transparent trace of the RAG retrieval pipeline."""
+
+    parsed_filters: ParsedLaptopQuery
+    candidates_before_filtering: int
+    candidates_after_filtering: int
+    qdrant_hits: list[QdrantHit]
+    context_sent_to_answer_llm: str | None = None
+
+
 class SearchResponse(BaseModel):
     """Search response with parsed filters and semantic matches."""
 
@@ -75,6 +96,7 @@ class SearchResponse(BaseModel):
     parsed_query: ParsedLaptopQuery
     total_candidates: int
     results: list[SearchResult]
+    trace: RetrievalTrace
 
 
 class AnswerResponse(BaseModel):
@@ -84,6 +106,7 @@ class AnswerResponse(BaseModel):
     parsed_query: ParsedLaptopQuery
     answer: str
     results: list[SearchResult]
+    trace: RetrievalTrace
 
 
 class ImportReport(BaseModel):
@@ -100,4 +123,3 @@ class IndexReport(BaseModel):
     indexed: int
     collection_name: str
     embedding_model: str
-

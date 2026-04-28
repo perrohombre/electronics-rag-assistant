@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from mediaexpert_laptops.rag.models import ParsedLaptopQuery, SearchRequest
+from mediaexpert_laptops.rag.models import ParsedLaptopQuery, QdrantHit, SearchRequest
 from mediaexpert_laptops.rag.repository import LaptopRepository
 from mediaexpert_laptops.rag.search import SearchService
 
@@ -21,7 +21,12 @@ class FakeIndex:
     def search(self, *, query_vector, parsed_query, limit: int):
         self.parsed_query = parsed_query
         return [
-            (source_id, 0.9 - index * 0.01)
+            QdrantHit(
+                rank=index + 1,
+                source_id=source_id,
+                score=0.9 - index * 0.01,
+                payload={"source_id": source_id},
+            )
             for index, source_id in enumerate(self.source_ids[:limit])
         ]
 
@@ -53,3 +58,8 @@ def test_search_service_returns_results_and_passes_hard_filters(tmp_path) -> Non
     assert index.parsed_query == parsed
     assert len(response.results) == 3
     assert response.results[0].laptop.semantic_description
+    assert response.trace.parsed_filters == parsed
+    assert response.trace.candidates_before_filtering == 150
+    assert response.trace.candidates_after_filtering <= 150
+    assert response.trace.qdrant_hits[0].source_id == source_ids[0]
+    assert response.trace.context_sent_to_answer_llm is None
