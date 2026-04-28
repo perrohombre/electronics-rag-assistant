@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from mediaexpert_laptops.rag.embedding import Embedder
 from mediaexpert_laptops.rag.index import LaptopIndex
-from mediaexpert_laptops.rag.models import SearchRequest, SearchResponse, SearchResult
+from mediaexpert_laptops.rag.models import (
+    RetrievalTrace,
+    SearchRequest,
+    SearchResponse,
+    SearchResult,
+)
 from mediaexpert_laptops.rag.query_analysis import QueryAnalysisService
 from mediaexpert_laptops.rag.repository import LaptopRepository
 
@@ -28,24 +33,49 @@ class SearchService:
     def search(self, request: SearchRequest) -> SearchResponse:
         """Search laptops."""
 
-        parsed = self._query_analysis.analyze(request.query)
-        query_vector = self._embedder.embed_query(request.query)
+        decision = self._query_analysis.analyze(request.query)
+        parsed = decision.filters
+        candidates_before = self._repository.count_laptops()
+        candidates_after = self._repository.count_matching_filters(parsed)
+
+        if decision.action == "ask_clarification":
+            return SearchResponse(
+                query=request.query,
+                parsed_query=parsed,
+                total_candidates=0,
+                results=[],
+                trace=RetrievalTrace(
+                    decision=decision,
+                    parsed_filters=parsed,
+                    candidates_before_filtering=candidates_before,
+                    candidates_after_filtering=candidates_after,
+                    qdrant_hits=[],
+                ),
+            )
+
+        query_vector = self._embedder.embed_query(decision.semantic_query or request.query)
         matches = self._index.search(
             query_vector=query_vector,
             parsed_query=parsed,
             limit=request.limit,
         )
-        laptops = self._repository.get_by_source_ids([source_id for source_id, _score in matches])
+        laptops = self._repository.get_by_source_ids([hit.source_id for hit in matches])
         by_id = {laptop.source_id: laptop for laptop in laptops}
         results = [
-            SearchResult(score=score, laptop=by_id[source_id])
-            for source_id, score in matches
-            if source_id in by_id
+            SearchResult(score=hit.score, laptop=by_id[hit.source_id])
+            for hit in matches
+            if hit.source_id in by_id
         ]
         return SearchResponse(
             query=request.query,
             parsed_query=parsed,
             total_candidates=len(results),
             results=results,
+            trace=RetrievalTrace(
+                decision=decision,
+                parsed_filters=parsed,
+                candidates_before_filtering=candidates_before,
+                candidates_after_filtering=candidates_after,
+                qdrant_hits=matches,
+            ),
         )
-

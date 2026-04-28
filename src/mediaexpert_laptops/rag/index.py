@@ -6,7 +6,12 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 from mediaexpert_laptops.rag.embedding import Embedder
-from mediaexpert_laptops.rag.models import IndexReport, LaptopRecord, ParsedLaptopQuery
+from mediaexpert_laptops.rag.models import (
+    IndexReport,
+    LaptopRecord,
+    ParsedLaptopQuery,
+    QdrantHit,
+)
 
 
 class LaptopIndex:
@@ -69,7 +74,7 @@ class LaptopIndex:
         query_vector: list[float],
         parsed_query: ParsedLaptopQuery,
         limit: int,
-    ) -> list[tuple[str, float]]:
+    ) -> list[QdrantHit]:
         """Search Qdrant with metadata filters."""
 
         results = self._client.query_points(
@@ -79,11 +84,19 @@ class LaptopIndex:
             limit=limit,
             with_payload=True,
         )
-        return [
-            (str(point.payload["source_id"]), float(point.score))
-            for point in results.points
-            if point.payload and point.payload.get("source_id")
-        ]
+        hits: list[QdrantHit] = []
+        for rank, point in enumerate(results.points, start=1):
+            if not point.payload or not point.payload.get("source_id"):
+                continue
+            hits.append(
+                QdrantHit(
+                    rank=rank,
+                    source_id=str(point.payload["source_id"]),
+                    score=float(point.score),
+                    payload=dict(point.payload),
+                )
+            )
+        return hits
 
 
 def build_qdrant_filter(parsed_query: ParsedLaptopQuery) -> models.Filter | None:

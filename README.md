@@ -87,6 +87,27 @@ Kolumna `opis_semantyczny` jest obecnie głównym źródłem informacji semantyc
 
 ## Uruchomienie Lokalne
 
+Najprostszy wariant uruchomienia całego demo:
+
+```bash
+export OPENAI_API_KEY="..."
+./scripts/run_rag_demo.sh
+```
+
+Skrypt tworzy `.venv`, instaluje projekt, uruchamia Qdrant, importuje CSV do SQLite, buduje indeks Qdrant, startuje API FastAPI i uruchamia UI Streamlit. Po starcie UI powinno być dostępne pod adresem:
+
+```text
+http://localhost:8501
+```
+
+Jeżeli klucz API znajduje się w pliku `.env`, nie trzeba wykonywać `export OPENAI_API_KEY`. Indeksowanie można pominąć przy kolejnych uruchomieniach komendą:
+
+```bash
+SKIP_INDEX=1 ./scripts/run_rag_demo.sh
+```
+
+Ręczne uruchomienie poszczególnych kroków opisano poniżej.
+
 Instalacja projektu:
 
 ```bash
