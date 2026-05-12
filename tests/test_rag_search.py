@@ -1,12 +1,21 @@
 from pathlib import Path
 
-from mediaexpert_laptops.rag.models import ParsedLaptopQuery, SearchRequest
+from mediaexpert_laptops.rag.models import (
+    ParsedLaptopQuery,
+    QdrantHit,
+    QueryDecision,
+    SearchRequest,
+)
 from mediaexpert_laptops.rag.repository import LaptopRepository
 from mediaexpert_laptops.rag.search import SearchService
 
 
 class FakeEmbedder:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
     def embed_query(self, text: str) -> list[float]:
+        self.queries.append(text)
         return [0.1, 0.2, 0.3]
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -21,17 +30,22 @@ class FakeIndex:
     def search(self, *, query_vector, parsed_query, limit: int):
         self.parsed_query = parsed_query
         return [
-            (source_id, 0.9 - index * 0.01)
+            QdrantHit(
+                rank=index + 1,
+                source_id=source_id,
+                score=0.9 - index * 0.01,
+                payload={"source_id": source_id},
+            )
             for index, source_id in enumerate(self.source_ids[:limit])
         ]
 
 
 class FakeQueryAnalysis:
-    def __init__(self, parsed: ParsedLaptopQuery) -> None:
-        self.parsed = parsed
+    def __init__(self, decision: QueryDecision) -> None:
+        self.decision = decision
 
-    def analyze(self, query: str) -> ParsedLaptopQuery:
-        return self.parsed
+    def analyze(self, query: str) -> QueryDecision:
+        return self.decision
 
 
 def test_search_service_returns_results_and_passes_hard_filters(tmp_path) -> None:
@@ -40,16 +54,56 @@ def test_search_service_returns_results_and_passes_hard_filters(tmp_path) -> Non
     source_ids = [laptop.source_id for laptop in repository.list_laptops()[:3]]
     index = FakeIndex(source_ids)
     parsed = ParsedLaptopQuery(max_price_pln=4000, min_ram_gb=16)
+    embedder = FakeEmbedder()
     service = SearchService(
         repository=repository,
         index=index,
-        embedder=FakeEmbedder(),
-        query_analysis=FakeQueryAnalysis(parsed),
+        embedder=embedder,
+        query_analysis=FakeQueryAnalysis(
+            QueryDecision(
+                action="search",
+                filters=parsed,
+                semantic_query="laptop do programowania",
+            )
+        ),
     )
 
     response = service.search(SearchRequest(query="laptop do 4000 zł do programowania", limit=3))
 
     assert response.parsed_query == parsed
     assert index.parsed_query == parsed
+    assert embedder.queries == ["laptop do programowania"]
     assert len(response.results) == 3
     assert response.results[0].laptop.semantic_description
+    assert response.trace.parsed_filters == parsed
+    assert response.trace.candidates_before_filtering == 150
+    assert response.trace.candidates_after_filtering <= 150
+    assert response.trace.qdrant_hits[0].source_id == source_ids[0]
+    assert response.trace.context_sent_to_answer_llm is None
+
+
+def test_search_service_returns_clarification_without_embedding_or_qdrant(tmp_path) -> None:
+    repository = LaptopRepository(tmp_path / "catalog.db")
+    repository.import_csv(Path("data/raw/mediaexpert_laptops.csv"))
+    index = FakeIndex([])
+    embedder = FakeEmbedder()
+    decision = QueryDecision(
+        action="ask_clarification",
+        filters=ParsedLaptopQuery(),
+        semantic_query="budżetowy laptop",
+        clarifying_question="Jaki maksymalny budżet w złotówkach mam przyjąć?",
+    )
+    service = SearchService(
+        repository=repository,
+        index=index,
+        embedder=embedder,
+        query_analysis=FakeQueryAnalysis(decision),
+    )
+
+    response = service.search(SearchRequest(query="budżetowy laptop", limit=3))
+
+    assert response.results == []
+    assert response.trace.decision.action == "ask_clarification"
+    assert response.trace.qdrant_hits == []
+    assert embedder.queries == []
+    assert index.parsed_query is None

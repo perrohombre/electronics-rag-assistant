@@ -6,7 +6,7 @@ import csv
 import sqlite3
 from pathlib import Path
 
-from mediaexpert_laptops.rag.models import ImportReport, LaptopRecord
+from mediaexpert_laptops.rag.models import ImportReport, LaptopRecord, ParsedLaptopQuery
 from mediaexpert_laptops.rag.normalization import normalize_laptop_row
 
 
@@ -99,6 +99,24 @@ class LaptopRepository:
             ).fetchall()
         return [row["brand"] for row in rows]
 
+    def count_laptops(self) -> int:
+        """Return total number of laptops in the catalog."""
+
+        with self._connect() as connection:
+            row = connection.execute("SELECT COUNT(*) AS count FROM laptops").fetchone()
+        return int(row["count"])
+
+    def count_matching_filters(self, parsed_query: ParsedLaptopQuery) -> int:
+        """Return how many laptops satisfy explicit hard filters."""
+
+        where_clauses, values = self._filter_sql(parsed_query)
+        query = "SELECT COUNT(*) AS count FROM laptops"
+        if where_clauses:
+            query += " WHERE " + " AND ".join(where_clauses)
+        with self._connect() as connection:
+            row = connection.execute(query, values).fetchone()
+        return int(row["count"])
+
     def get_by_source_ids(self, source_ids: list[str]) -> list[LaptopRecord]:
         """Return laptops in the input source ID order."""
 
@@ -112,6 +130,39 @@ class LaptopRepository:
             ).fetchall()
         by_id = {row["source_id"]: self._from_row(row) for row in rows}
         return [by_id[source_id] for source_id in source_ids if source_id in by_id]
+
+    def _filter_sql(self, parsed_query: ParsedLaptopQuery) -> tuple[list[str], list]:
+        where_clauses: list[str] = []
+        values: list = []
+
+        if parsed_query.min_price_pln is not None:
+            where_clauses.append("price_pln >= ?")
+            values.append(parsed_query.min_price_pln)
+        if parsed_query.max_price_pln is not None:
+            where_clauses.append("price_pln <= ?")
+            values.append(parsed_query.max_price_pln)
+        if parsed_query.brand:
+            where_clauses.append("brand = ?")
+            values.append(parsed_query.brand)
+        if parsed_query.operating_system:
+            where_clauses.append("LOWER(operating_system) LIKE ?")
+            values.append(f"%{parsed_query.operating_system.casefold()}%")
+        if parsed_query.min_ram_gb is not None:
+            where_clauses.append("ram_gb >= ?")
+            values.append(parsed_query.min_ram_gb)
+        if parsed_query.min_ssd_gb is not None:
+            where_clauses.append("ssd_gb >= ?")
+            values.append(parsed_query.min_ssd_gb)
+        if parsed_query.requires_dedicated_gpu is True:
+            where_clauses.append("has_dedicated_gpu = 1")
+        if parsed_query.screen_size_min is not None:
+            where_clauses.append("screen_inches >= ?")
+            values.append(parsed_query.screen_size_min)
+        if parsed_query.screen_size_max is not None:
+            where_clauses.append("screen_inches <= ?")
+            values.append(parsed_query.screen_size_max)
+
+        return where_clauses, values
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)

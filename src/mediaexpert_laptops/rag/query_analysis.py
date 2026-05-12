@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from mediaexpert_laptops.rag.models import ParsedLaptopQuery
+from mediaexpert_laptops.rag.models import ParsedLaptopQuery, QueryDecision
 
 
 class QueryAnalysisService:
@@ -15,8 +15,8 @@ class QueryAnalysisService:
         self._model = model
         self._known_brands = sorted({brand.upper() for brand in known_brands})
 
-    def analyze(self, query: str) -> ParsedLaptopQuery:
-        """Return explicit filters; use a deterministic fallback without API key."""
+    def analyze(self, query: str) -> QueryDecision:
+        """Return dialog decision and explicit filters."""
 
         if not self._api_key:
             return self._fallback(query)
@@ -34,20 +34,32 @@ class QueryAnalysisService:
                             "Wyciągasz tylko jawne, twarde filtry z polskich zapytań o laptopy. "
                             "Nie zgaduj zastosowania, kategorii ani parametrów. Jeśli warunek nie "
                             "jest jasno podany, ustaw null. Marka musi być jedną z: "
-                            f"{', '.join(self._known_brands)}."
+                            f"{', '.join(self._known_brands)}. "
+                            "Dodatkowo wybierasz action: search, search_with_assumption, "
+                            "ask_clarification albo unsupported. Użyj unsupported, gdy użytkownik "
+                            "szuka produktu spoza katalogu laptopów, np. klawiatury, myszy, "
+                            "monitora albo zasilacza. Nie pytaj o doprecyzowanie, jeśli "
+                            "zapytanie ma wystarczający sens semantyczny, np. laptop gamingowy "
+                            "albo do nauki. "
+                            "Zapytaj tylko wtedy, gdy brak informacji blokuje sensowną "
+                            "rekomendację albo użytkownik używa pojęcia wymagającego progu, "
+                            "np. tani, budżetowy, niedrogi, bez podania kwoty. Jeśli da się "
+                            "szukać z założeniem, wybierz "
+                            "search_with_assumption i opisz założenie. Zadawaj maksymalnie jedno "
+                            "krótkie pytanie po polsku."
                         ),
                     },
                     {"role": "user", "content": query},
                 ],
-                text_format=ParsedLaptopQuery,
+                text_format=QueryDecision,
             )
-            parsed = response.output_parsed
+            decision = response.output_parsed
         except Exception:
-            parsed = self._fallback(query)
+            decision = self._fallback(query)
 
-        return self._validate(parsed)
+        return self._validate(decision, query)
 
-    def _fallback(self, query: str) -> ParsedLaptopQuery:
+    def _fallback(self, query: str) -> QueryDecision:
         text = query.casefold()
         parsed = ParsedLaptopQuery()
 
@@ -100,11 +112,83 @@ class QueryAnalysisService:
         if screen_min:
             parsed.screen_size_min = float(screen_min.group(1).replace(",", "."))
 
-        return parsed
+        action = "search"
+        clarifying_question = None
+        assumptions: list[str] = []
+        unsupported_words = (
+            "klawiatura",
+            "klawiaturę",
+            "klawiature",
+            "mysz",
+            "myszka",
+            "monitor",
+            "słuchawki",
+            "sluchawki",
+            "telefon",
+            "smartfon",
+            "zasilacz",
+            "torba",
+            "plecak",
+        )
+        budget_words = ("budżetowy", "budzetowy", "tani", "taniego", "niedrogi", "niedrogiego")
+        broad_queries = {
+            "laptop",
+            "jaki laptop",
+            "dobry laptop",
+            "poleć laptop",
+            "polec laptop",
+        }
+        has_budget_word = any(word in text for word in budget_words)
+        has_clear_budget = parsed.max_price_pln is not None or parsed.min_price_pln is not None
+        has_any_filter = any(value is not None for value in parsed.model_dump().values())
+        has_semantic_signal = any(
+            token in text
+            for token in (
+                "gaming",
+                "gamingowy",
+                "programowania",
+                "programowanie",
+                "nauki",
+                "studia",
+                "biura",
+                "pracy",
+                "mobilny",
+                "lekki",
+            )
+        )
 
-    def _validate(self, parsed: ParsedLaptopQuery) -> ParsedLaptopQuery:
+        if any(word in text for word in unsupported_words):
+            action = "unsupported"
+            clarifying_question = (
+                "Obecny katalog obejmuje tylko laptopy. Nie mogę wyszukać tego typu produktu."
+            )
+        elif has_budget_word and not has_clear_budget:
+            action = "search_with_assumption" if has_semantic_signal else "ask_clarification"
+            clarifying_question = "Jaki maksymalny budżet w złotówkach mam przyjąć?"
+            assumptions.append("Nie ustawiono filtra ceny, bo użytkownik nie podał kwoty.")
+        elif text.strip() in broad_queries or (not has_any_filter and not has_semantic_signal):
+            action = "ask_clarification"
+            clarifying_question = (
+                "Do czego laptop ma być używany i jaki maksymalny budżet mam przyjąć?"
+            )
+
+        return QueryDecision(
+            action=action,
+            filters=parsed,
+            semantic_query=query,
+            clarifying_question=clarifying_question,
+            assumptions=assumptions,
+        )
+
+    def _validate(self, decision: QueryDecision, query: str) -> QueryDecision:
+        parsed = decision.filters
         if parsed.brand and parsed.brand.upper() not in self._known_brands:
             parsed.brand = None
         elif parsed.brand:
             parsed.brand = parsed.brand.upper()
-        return parsed
+        if decision.action not in {"ask_clarification", "unsupported"}:
+            decision.clarifying_question = decision.clarifying_question or None
+        if not decision.semantic_query:
+            decision.semantic_query = query
+        decision.filters = parsed
+        return decision
